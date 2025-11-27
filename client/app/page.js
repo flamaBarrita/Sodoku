@@ -39,7 +39,7 @@ export default function VisualizadorSudoku() {
 
 
   const URL_API = process.env.NODE_ENV === 'production' 
-  ? 'https://sodoku-api.vercel.app/'
+  ? 'https://sodoku-api.vercel.app'
   : 'http://localhost:8000';
 
   // Función principal conectado con el backend
