@@ -39,7 +39,7 @@ export default function VisualizadorSudoku() {
 
 
   const URL_API = process.env.NODE_ENV === 'production' 
-    ? ''                      // En Vercel: usa la misma url del sitio (ruta relativa)
+    ? 'https://sodoku-a76349lky-flama-barritas-projects.vercel.app/'   
     : 'http://localhost:8000';
 
   // Función principal conectado con el backend
