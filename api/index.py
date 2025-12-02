@@ -4,8 +4,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 import api.sodoku_solver as motor_sudoku 
 import numpy as np
-import random 
-from api.genetic_logic import evolucionar
 
 app = FastAPI()
 
@@ -36,52 +34,69 @@ class SimulationInput(BaseModel):
     dias: int
     num_simulaciones: int
 
-class Punto(BaseModel):
-    id: int
-    x: float
-    y: float
-    radio: Optional[float] = 0
+@app.post("/api/solve-sudoku")
+def endpoint_resolver_sudoku(datos: SolicitudSudoku):
+   # recibimos el tablero desde el frontend y preparamos todo para resolverlo
 
-class Peticion(BaseModel):
-    ciudades: List[Entidad]
-    obstaculos: List[Entidad]
-    poblacion: List[List[Entidad]] = [] # Lista de listas de Entidades
-    tamano_poblacion: int = 40
-
-
-@app.post("/api/evolve")
-def endpoint_evolucionar(data: Peticion):
-    # Validar que haya ciudades antes de procesar
-    if len(data.ciudades) < 2:
-        return {"error": "Se necesitan al menos 2 ciudades"}
-
-    poblacion = data.poblacion
+    # Borramos las fotos de la jugada anterior
+    motor_sudoku.historial_visual.clear()
     
-    if not poblacion:
-        for _ in range(data.tamano_poblacion):
-            ruta = data.ciudades[:] 
-            random.shuffle(ruta)
-            poblacion.append(ruta)
-            
-    # Evolucionar
-    mejor_distancia = 0
-    try:
-        # Intentamos evolucionar 10 veces
-        for _ in range(10):
-            poblacion, mejor_distancia = evolucionar(poblacion, data.obstaculos)
-    except Exception as e:
-        print(f"Error interno en lógica genética: {e}")
-        # Si falla la lógica, devolvemos lo que tenemos para no romper el frontend
-        return {
-             "poblacion": poblacion,
-             "mejor_ruta": poblacion[0] if poblacion else [],
-             "mejor_distancia": 999999
-        }
-        
-    mejor_ruta = poblacion[0]
+    # Creamos una copia de trabajo del tablero recibido
+    # (Usamos comprensión de listas para copiar fila por fila y evitar errores de referencia)
+    tablero_para_resolver = [fila[:] for fila in datos.board]
     
+    # Ejecutamos el algoritmo 
+    se_encontro_solucion = motor_sudoku.resolver_sudoku(tablero_para_resolver)
+    
+    # Empaquetamos todo para enviarlo de vuelta al navegador
     return {
-        "poblacion": poblacion,
-        "mejor_ruta": mejor_ruta,
-        "mejor_distancia": mejor_distancia
+        "solvable": se_encontro_solucion,         # Booleano: ¿Se pudo resolver? T - F
+        "solution": tablero_para_resolver,        # El tablero final ya resuelto
+        "history": motor_sudoku.historial_visual  # La lista de "fotos" para la animación
+    }
+
+
+@app.post("/api/simulate")
+def run_simulation(data: SimulationInput):
+    # 1. Configuración de parámetros
+    dt = 1 / 252  # Paso de tiempo (un día de trading)
+    S0 = data.precio_actual
+    mu = 0.10  # Rendimiento esperado (asumimos 10% anual para el ejemplo)
+    sigma = data.volatilidad
+    
+    # 2. Generación masiva de aleatoriedad (La "matriz" de caminos)
+    # Creamos retornos aleatorios log-normales de una sola vez
+    shocks = np.random.normal(
+        (mu - 0.5 * sigma**2) * dt, # Deriva (drift)
+        sigma * np.sqrt(dt),        # Choque aleatorio
+        (data.num_simulaciones, data.dias) # Tamaño de la matriz
+    )
+    
+    # 3. Construcción de caminos de precios
+    # Sumamos los cambios acumulados y aplicamos exponencial
+    caminos = np.zeros((data.num_simulaciones, data.dias + 1))
+    caminos[:, 0] = S0
+    caminos[:, 1:] = S0 * np.exp(np.cumsum(shocks, axis=1))
+    
+    # 4. Cálculo de Estadísticas Finales (último día)
+    precios_finales = caminos[:, -1]
+    promedio = np.mean(precios_finales)
+    
+    # Percentil 5 (El escenario pesimista para el VaR)
+    peor_caso_95 = np.percentile(precios_finales, 5)
+    
+    # Value at Risk: Cuánto dinero perderíamos en el peor 5% de los casos
+    var_95 = S0 - peor_caso_95
+    
+    # Nota: Para la gráfica, enviamos solo una muestra (ej. 50 líneas)
+    # para no saturar el navegador, pero los stats usan las 1000+ simulaciones.
+    return {
+        "stats": {
+            "promedio_final": round(promedio, 2),
+            "var_95": round(var_95, 2),
+            "peor_escenario": round(peor_caso_95, 2)
+        },
+        # Convertimos a lista para JSON. Enviamos las primeras 50 simulaciones para graficar.
+        "trayectorias": caminos[:50].tolist(), 
+        "dias": list(range(data.dias + 1))
     }
