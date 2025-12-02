@@ -69,7 +69,6 @@ def endpoint_resolver_sudoku(datos: SolicitudSudoku):
         "history": motor_sudoku.historial_visual  # La lista de "fotos" para la animación
     }
 
-
 @app.post("/api/simulate")
 def run_simulation(data: SimulationInput):
 
